@@ -7,7 +7,7 @@ SE channel reweighting, and Group Normalization for batch-size-one training.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nets.SelfModule import SSS
+from Models.Modules import SSS
 
 
 class UPPA3(nn.Module):
