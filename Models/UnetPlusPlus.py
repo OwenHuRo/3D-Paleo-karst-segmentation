@@ -1,0 +1,152 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class ContinusParalleConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ContinusParalleConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.Conv_forward = nn.Sequential(
+            nn.Conv3d(self.in_channels, self.out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(num_groups=int(self.out_channels/8), num_channels=self.out_channels),
+            nn.ReLU(),
+            nn.Conv3d(self.out_channels, self.out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(num_groups=int(self.out_channels/8), num_channels=self.out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        x = self.Conv_forward(x)
+        return x
+
+
+
+
+class UnetPlusPlus(nn.Module):
+    def __init__(self, input_channels=1, output_channels=1, deep_supervision=False):
+        super(UnetPlusPlus, self).__init__()
+        self.deep_supervision = deep_supervision
+        #self.filters = [64, 128, 256, 512, 1024]
+        self.filters = [32, 64, 128, 256, 512]
+
+        # 使用3D卷积的stage模块
+        self.stage_0 = ContinusParalleConv(input_channels, 32)
+        self.stage_1 = ContinusParalleConv(32, 64)
+        self.stage_2 = ContinusParalleConv(64, 128)
+        self.stage_3 = ContinusParalleConv(128, 256)
+        self.stage_4 = ContinusParalleConv(256, 512)
+
+        self.pool = nn.MaxPool3d(kernel_size=2)
+
+        # 与UNet++结构相对应的中间层
+        self.CONV3_1 = ContinusParalleConv(256 * 2, 256)
+
+        self.CONV2_2 = ContinusParalleConv(128 * 3, 128)
+        self.CONV2_1 = ContinusParalleConv(128 * 2, 128)
+
+        self.CONV1_1 = ContinusParalleConv(64 * 2, 64)
+        self.CONV1_2 = ContinusParalleConv(64 * 3, 64)
+        self.CONV1_3 = ContinusParalleConv(64 * 4, 64)
+
+        self.CONV0_1 = ContinusParalleConv(32 * 2, 32)
+        self.CONV0_2 = ContinusParalleConv(32 * 3, 32)
+        self.CONV0_3 = ContinusParalleConv(32 * 4, 32)
+        self.CONV0_4 = ContinusParalleConv(32 * 5, 32)
+
+        # 上采样层使用ConvTranspose3d, kernel_size=2, stride=2
+        self.upsample_3_1 = nn.ConvTranspose3d(in_channels=512, out_channels=256, kernel_size=2, stride=2)
+
+        self.upsample_2_1 = nn.ConvTranspose3d(in_channels=256, out_channels=128, kernel_size=2, stride=2)
+        self.upsample_2_2 = nn.ConvTranspose3d(in_channels=256, out_channels=128, kernel_size=2, stride=2)
+
+        self.upsample_1_1 = nn.ConvTranspose3d(in_channels=128, out_channels=64, kernel_size=2, stride=2)
+        self.upsample_1_2 = nn.ConvTranspose3d(in_channels=128, out_channels=64, kernel_size=2, stride=2)
+        self.upsample_1_3 = nn.ConvTranspose3d(in_channels=128, out_channels=64, kernel_size=2, stride=2)
+
+        self.upsample_0_1 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
+        self.upsample_0_2 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
+        self.upsample_0_3 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
+        self.upsample_0_4 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
+
+        # 最终输出层（深度监督的各个输出头）
+        self.final_super_0_1 = nn.Sequential(
+            nn.GroupNorm(8,32),
+            nn.ReLU(),
+            nn.Conv3d(32, output_channels, 3, padding=1),
+        )
+        self.final_super_0_2 = nn.Sequential(
+            nn.GroupNorm(8,32),
+            nn.ReLU(),
+            nn.Conv3d(32, output_channels, 3, padding=1),
+        )
+        self.final_super_0_3 = nn.Sequential(
+            nn.GroupNorm(8, 32),
+            nn.ReLU(),
+            nn.Conv3d(32, output_channels, 3, padding=1),
+        )
+        self.final_super_0_4 = nn.Sequential(
+            nn.GroupNorm(8, 32),
+            nn.ReLU(),
+            nn.Conv3d(32, output_channels, 3, padding=1),
+        )
+
+    def forward(self, x):
+        # 编码部分
+        x_0_0 = self.stage_0(x)
+        x_1_0 = self.stage_1(self.pool(x_0_0))
+        x_2_0 = self.stage_2(self.pool(x_1_0))
+        x_3_0 = self.stage_3(self.pool(x_2_0))
+        #x_4_0 = self.stage_4(self.pool(x_3_0))
+
+        # UNet++ 密集连接部分
+        x_0_1 = torch.cat([self.upsample_0_1(x_1_0), x_0_0], 1)
+        x_0_1 = self.CONV0_1(x_0_1)
+
+        x_1_1 = torch.cat([self.upsample_1_1(x_2_0), x_1_0], 1)
+        x_1_1 = self.CONV1_1(x_1_1)
+
+        x_2_1 = torch.cat([self.upsample_2_1(x_3_0), x_2_0], 1)
+        x_2_1 = self.CONV2_1(x_2_1)
+
+        #x_3_1 = torch.cat([self.upsample_3_1(x_4_0), x_3_0], 1)
+        #x_3_1 = self.CONV3_1(x_3_1)
+
+        #x_2_2 = torch.cat([self.upsample_2_2(x_3_1), x_2_0, x_2_1], 1)
+        #x_2_2 = self.CONV2_2(x_2_2)
+
+        x_1_2 = torch.cat([self.upsample_1_2(x_2_1), x_1_0, x_1_1], 1)
+        x_1_2 = self.CONV1_2(x_1_2)
+
+        #x_1_3 = torch.cat([self.upsample_1_3(x_2_2), x_1_0, x_1_1, x_1_2], 1)
+        #x_1_3 = self.CONV1_3(x_1_3)
+
+        x_0_2 = torch.cat([self.upsample_0_2(x_1_1), x_0_0, x_0_1], 1)
+        x_0_2 = self.CONV0_2(x_0_2)
+
+        x_0_3 = torch.cat([self.upsample_0_3(x_1_2), x_0_0, x_0_1, x_0_2], 1)
+        x_0_3 = self.CONV0_3(x_0_3)
+
+        #x_0_4 = torch.cat([self.upsample_0_4(x_1_3), x_0_0, x_0_1, x_0_2, x_0_3], 1)
+        #x_0_4 = self.CONV0_4(x_0_4)
+
+        # 根据deep_supervision输出
+        if self.deep_supervision:
+            out_put1 = torch.sigmoid(self.final_super_0_1(x_0_1))
+            out_put2 = torch.sigmoid(self.final_super_0_2(x_0_2))
+            out_put3 = torch.sigmoid(self.final_super_0_3(x_0_3))
+            #out_put4 = torch.sigmoid(self.final_super_0_4(x_0_4))
+            #return [out_put1, out_put2, out_put3, out_put4]
+            return [out_put1, out_put2, out_put3]
+        else:
+            #return torch.sigmoid(self.final_super_0_4(x_0_4))
+            return torch.sigmoid(self.final_super_0_4(x_0_3))
+
+
+if __name__ == "__main__":
+    # 测试代码
+    model = UnetPlusPlus(input_channels=1, output_channels=1, deep_supervision=False)
+    input_tensor = torch.rand((1, 1, 128, 128, 128))
+    output = model(input_tensor)
+    print(output.shape)
