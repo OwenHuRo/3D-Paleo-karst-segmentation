@@ -25,7 +25,7 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from Models.CTrans import ChannelTransformer
-import Config
+from Utils import Config
 
 def get_activation(activation_type):
     activation_type = activation_type.lower()

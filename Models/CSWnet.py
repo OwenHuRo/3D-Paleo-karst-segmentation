@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from Models.CTrans_SAM_Center_Position import ChannelTransformerPlusSpatial
-import Config
+from Utils import Config
 
 class SkipConnection(nn.Module):
     def __init__(self, channels):

@@ -13,7 +13,7 @@ import numpy as np
 from torch.nn import Dropout, Softmax, Conv3d, LayerNorm
 logger = logging.getLogger(__name__)
 from torch.nn.modules.utils import _ntuple
-import Config
+from Utils import Config
 
 import torch
 import torch.nn as nn
