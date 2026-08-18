@@ -7,7 +7,7 @@ SE channel reweighting, and Group Normalization for batch-size-one training.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Models.Modules import SSS
+from Models.Modules import GSCD
 
 
 class UPPA3(nn.Module):
@@ -42,8 +42,8 @@ class UPPA3(nn.Module):
 
         self.output_conv = nn.Conv3d(nf1, output_channels, kernel_size=1)
         # skip
-        self.mid1_down = SSS(nf1, nf1*8, kernel_size=7)
-        self.mid2_down = SSS(nf2, nf2*8, kernel_size=5)
+        self.mid1_down = GSCD(nf1, nf1*8, kernel_size=7)
+        self.mid2_down = GSCD(nf2, nf2*8, kernel_size=5)
 
 
     def double_conv(self, in_channels, out_channels):
@@ -89,12 +89,8 @@ class UPPA3(nn.Module):
         output = torch.sigmoid(self.output_conv(conv7))
         return output
 
-model = UPPA3(input_channels=1, output_channels=1)
-
-criterion = nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
 if __name__ == "__main__":
     input_tensor = torch.rand((1, 1, 128, 128, 128))
+    model = UPPA3(input_channels=1, output_channels=1)
     output = model(input_tensor)
     print(output.shape)

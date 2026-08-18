@@ -85,12 +85,8 @@ class UPPA1(nn.Module):
         output = torch.sigmoid(self.output_conv(conv7))
         return output
 
-model = UPPA1(input_channels=1, output_channels=1)
-
-criterion = nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
 if __name__ == "__main__":
     input_tensor = torch.rand((1, 1, 128, 128, 128))
+    model = UPPA1(input_channels=1, output_channels=1)
     output = model(input_tensor)
     print(output.shape)

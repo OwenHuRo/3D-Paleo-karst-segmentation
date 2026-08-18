@@ -37,11 +37,11 @@ class UPPA(nn.Module):
 
         # Upsampling path
         self.up5 = nn.ConvTranspose3d(nf4, nf3, kernel_size=2, stride=2)
-        self.conv5 = self.double_conv(nf3*2+nf2, nf3)
+        self.conv5 = self.double_conv(nf3*2+nf2*8, nf3)
 
         self.up6 = nn.ConvTranspose3d(nf3, nf2, kernel_size=2, stride=2)
 
-        self.conv6 = self.double_conv(nf2*2+nf1, nf2)
+        self.conv6 = self.double_conv(nf2*2+nf1*8, nf2)
 
         self.up7 = nn.ConvTranspose3d(nf2, nf1, kernel_size=2, stride=2)
         self.conv7 = self.double_conv(nf1*2, nf1)
@@ -89,12 +89,8 @@ class UPPA(nn.Module):
         output = torch.sigmoid(self.output_conv(conv7))
         return output
 
-model = UPPA(input_channels=1, output_channels=1)
-
-criterion = nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
 if __name__ == "__main__":
     input_tensor = torch.rand((1, 1, 128, 128, 128))
+    model = UPPA(input_channels=1, output_channels=1)
     output = model(input_tensor)
     print(output.shape)

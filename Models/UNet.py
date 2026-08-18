@@ -51,7 +51,6 @@ class UNet(nn.Module):
         )
 
     def forward(self, x):
-        print(f"Model input shape: {x.shape}")
         # Downsampling path
         conv1 = self.conv1(x)
         pool1 = self.pool1(conv1)
@@ -80,13 +79,8 @@ class UNet(nn.Module):
         output = torch.sigmoid(self.output_conv(conv7))
         return output
 
-model = UNet(input_channels=1, output_channels=1)
-
-#default test loss and optimizer
-criterion = nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
 if __name__ == "__main__":
     input_tensor = torch.rand((1, 1, 128, 128, 128))
+    model = UNet(input_channels=1, output_channels=1)
     output = model(input_tensor)
     print(output.shape)

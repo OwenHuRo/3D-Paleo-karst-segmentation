@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 import random
 import time
 import torch
+from pathlib import Path
 
 "Generates data for PyTorch"
 class DataGenerator(Dataset):
@@ -14,7 +15,7 @@ class DataGenerator(Dataset):
         self.dpath = dpath
         self.fpath = fpath
         self.batch_size = batch_size
-        self.data_IDs = data_IDs
+        self.data_IDs = list(data_IDs)
         self.n_channels = n_channels
         self.shuffle = shuffle
         self.on_epoch_end()
@@ -42,37 +43,58 @@ class DataGenerator(Dataset):
         else:
             m1, m2, m3 = 128, 128, 128
 
-        # Load data
-        gx = np.fromfile(f"{self.dpath}synthetic_seismic_final_{data_ID}.dat", dtype=np.float32)
-        kx = np.fromfile(f"{self.fpath}synthetic_seismic_final_{data_ID}.dat", dtype=np.float32)
-        gx = np.reshape(gx, self.dim)
-        kx = np.reshape(kx, self.dim)
+        if any(source < crop for source, crop in zip(self.dim, (m1, m2, m3))):
+            raise ValueError(
+                f"Source volume {self.dim} must be at least as large as "
+                f"the requested crop {(m1, m2, m3)}."
+            )
+
+        # Memory-map source volumes so only the requested crop is loaded.
+        data_path = Path(self.dpath) / f"synthetic_seismic_final_{data_ID}.dat"
+        label_path = Path(self.fpath) / f"synthetic_seismic_final_{data_ID}.dat"
+        expected_bytes = int(np.prod(self.dim)) * np.dtype(np.float32).itemsize
+
+        for file_path in (data_path, label_path):
+            if not file_path.is_file():
+                raise FileNotFoundError(f"Volume file not found: {file_path}")
+            if file_path.stat().st_size != expected_bytes:
+                raise ValueError(
+                    f"Invalid file size for {file_path}: expected {expected_bytes} "
+                    f"bytes, found {file_path.stat().st_size}."
+                )
+
+        gx = np.memmap(data_path, dtype=np.float32, mode='r', shape=self.dim)
+        kx = np.memmap(label_path, dtype=np.float32, mode='r', shape=self.dim)
 
         if self.Enhance:
             # Randomly cut a smaller volume
-            k1 = random.randint(0, n1 - m1 - 1)
-            k2 = random.randint(0, n2 - m2 - 1)
-            k3 = random.randint(0, n3 - m3 - 1)
+            k1 = random.randint(0, n1 - m1)
+            k2 = random.randint(0, n2 - m2)
+            k3 = random.randint(0, n3 - m3)
             gx_cut = gx[k1:k1 + m1, k2:k2 + m2, k3:k3 + m3]
             kx_cut = kx[k1:k1 + m1, k2:k2 + m2, k3:k3 + m3]
             # Normalize the data
             gm = np.mean(gx_cut)
             gs = np.std(gx_cut)
-            print(f"4.4420 gm:{gm},1786.6514 gs:{gs}")
             gx_cut = (gx_cut - gm) / (gs + 1e-8)
             num_rotations = random.randint(0, 3)
             axes = random.choice([(0, 1), (0, 2), (1, 2)])
             gx_cut = np.rot90(gx_cut, num_rotations, axes).copy()
             kx_cut = np.rot90(kx_cut, num_rotations, axes).copy()
         else:
-            # Concretely cut a smaller volume
-            k1, k2, k3 = 32, 32, 32
+            # Preserve the fixed manuscript evaluation crop while supporting
+            # source volumes that have less than 32 voxels of crop margin.
+            k1 = min(32, n1 - m1)
+            k2 = min(32, n2 - m2)
+            k3 = min(32, n3 - m3)
             gx_cut = gx[k1:k1 + m1, k2:k2 + m2, k3:k3 + m3]
             kx_cut = kx[k1:k1 + m1, k2:k2 + m2, k3:k3 + m3]
             gm = np.mean(gx_cut)
             gs = np.std(gx_cut)
-            print(f"4.4420 gm:{gm},1786.6514 gs:{gs}")
             gx_cut = (gx_cut - gm) / (gs + 1e-8)
+            kx_cut = np.asarray(kx_cut).copy()
+
+        del gx, kx
 
         # Add channel dimension
         X = np.expand_dims(gx_cut, axis=0)  # Shape: (1, 128, 128, 128)
@@ -265,6 +287,39 @@ def gradient_consistency_loss(pred: torch.Tensor,
          + (pdy - tdy).abs().mean() \
          + (pdz - tdz).abs().mean()
     return loss
+
+
+class CompositeLoss(nn.Module):
+    """
+    Composite loss proposed for GSCD-Unet.
+
+    The loss is the unweighted sum of Focal Loss, Boundary-aware Weighted BCE
+    and Gradient Consistency Loss, matching the accompanying manuscript.
+    """
+    def __init__(self, alpha=0.8, gamma=2):
+        super().__init__()
+        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
+
+    def forward(self, predict_matrix, truth_matrix):
+        focal = self.focal_loss(predict_matrix, truth_matrix)
+
+        masks_np = truth_matrix.detach().cpu().numpy()[:, 0]
+        distance_maps_np = np.stack([
+            compute_signed_distance_map(mask_np)
+            for mask_np in masks_np
+        ])
+        distance_map = torch.from_numpy(distance_maps_np).to(
+            device=predict_matrix.device,
+            dtype=predict_matrix.dtype
+        )
+
+        boundary = boundary_weighted_bce_loss(
+            predict_matrix,
+            truth_matrix,
+            distance_map
+        )
+        gradient = gradient_consistency_loss(predict_matrix, truth_matrix)
+        return focal + boundary + gradient
 
 
 def gradient_consistency_loss_mip(pred: torch.Tensor,

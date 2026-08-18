@@ -31,7 +31,6 @@ class UnetPlusPlus(nn.Module):
         #self.filters = [64, 128, 256, 512, 1024]
         self.filters = [32, 64, 128, 256, 512]
 
-        # 使用3D卷积的stage模块
         self.stage_0 = ContinusParalleConv(input_channels, 32)
         self.stage_1 = ContinusParalleConv(32, 64)
         self.stage_2 = ContinusParalleConv(64, 128)
@@ -40,7 +39,6 @@ class UnetPlusPlus(nn.Module):
 
         self.pool = nn.MaxPool3d(kernel_size=2)
 
-        # 与UNet++结构相对应的中间层
         self.CONV3_1 = ContinusParalleConv(256 * 2, 256)
 
         self.CONV2_2 = ContinusParalleConv(128 * 3, 128)
@@ -55,7 +53,7 @@ class UnetPlusPlus(nn.Module):
         self.CONV0_3 = ContinusParalleConv(32 * 4, 32)
         self.CONV0_4 = ContinusParalleConv(32 * 5, 32)
 
-        # 上采样层使用ConvTranspose3d, kernel_size=2, stride=2
+        # ConvTranspose3d, kernel_size=2, stride=2
         self.upsample_3_1 = nn.ConvTranspose3d(in_channels=512, out_channels=256, kernel_size=2, stride=2)
 
         self.upsample_2_1 = nn.ConvTranspose3d(in_channels=256, out_channels=128, kernel_size=2, stride=2)
@@ -70,7 +68,6 @@ class UnetPlusPlus(nn.Module):
         self.upsample_0_3 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
         self.upsample_0_4 = nn.ConvTranspose3d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
 
-        # 最终输出层（深度监督的各个输出头）
         self.final_super_0_1 = nn.Sequential(
             nn.GroupNorm(8,32),
             nn.ReLU(),
@@ -93,14 +90,13 @@ class UnetPlusPlus(nn.Module):
         )
 
     def forward(self, x):
-        # 编码部分
         x_0_0 = self.stage_0(x)
         x_1_0 = self.stage_1(self.pool(x_0_0))
         x_2_0 = self.stage_2(self.pool(x_1_0))
         x_3_0 = self.stage_3(self.pool(x_2_0))
         #x_4_0 = self.stage_4(self.pool(x_3_0))
 
-        # UNet++ 密集连接部分
+        # UNet++
         x_0_1 = torch.cat([self.upsample_0_1(x_1_0), x_0_0], 1)
         x_0_1 = self.CONV0_1(x_0_1)
 
@@ -145,7 +141,6 @@ class UnetPlusPlus(nn.Module):
 
 
 if __name__ == "__main__":
-    # 测试代码
     model = UnetPlusPlus(input_channels=1, output_channels=1, deep_supervision=False)
     input_tensor = torch.rand((1, 1, 128, 128, 128))
     output = model(input_tensor)

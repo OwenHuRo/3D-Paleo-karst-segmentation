@@ -18,7 +18,7 @@ else:
 
 
 model_choices = [
-    'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet',
+    'GSCDUnet', 'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet',
     'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'
 ]
 
@@ -26,9 +26,9 @@ parser = argparse.ArgumentParser(description="Visualize synthetic-data segmentat
 parser.add_argument(
     '--model',
     type=str,
-    default='UPPA3',
+    default='GSCDUnet',
     choices=model_choices,
-    help='Choose the model (default: UPPA3)'
+    help='Choose the model; UPPA3 is the legacy name of GSCDUnet'
 )
 parser.add_argument(
     '--checkpoint',
@@ -46,7 +46,7 @@ parser.add_argument(
     '--test-data-ids',
     type=int,
     nargs='+',
-    default=[2],
+    default=[181],
     help='Data IDs to visualize, for example: --test-data-ids 181 182'
 )
 parser.add_argument(

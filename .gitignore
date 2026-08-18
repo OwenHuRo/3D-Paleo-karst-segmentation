@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Environments
+.venv/
+venv/
+env/
+
+# Generated datasets and seismic volumes
+*.dat
+*.sgy
+*.segy
+Data/GroundTruth/
+Data/Label/
+
+# Model artifacts and experiment outputs
+*.pth
+*.pt
+*.ckpt
+runs/
+test_results/
+reality_results/
+
+# Generated visualization intermediates
+Pictures/ModelingProcess/
+

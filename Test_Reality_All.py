@@ -20,7 +20,7 @@ else:
 
 
 model_choices = [
-    'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'
+    'GSCDUnet', 'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'
 ]
 
 parser = argparse.ArgumentParser(description="Run full-volume inference on real seismic data")
@@ -28,7 +28,7 @@ parser.add_argument(
     '--models',
     type=str,
     nargs='+',
-    default=['UNet', 'UCTransNet', 'UPPA3'],
+    default=['GSCDUnet'],
     choices=model_choices,
     help='Models to evaluate, in the same order as --checkpoints'
 )
@@ -124,6 +124,10 @@ if any(size <= 0 for size in args.block_size):
 if any(size % 16 != 0 for size in args.block_size):
     parser.error('--block-size values must be divisible by 16 for the current model family')
 
+transformer_models = {'UCTransNet', 'CWnet', 'CSWnet'}
+if transformer_models.intersection(args.models) and len(set(args.block_size)) != 1:
+    parser.error('Transformer models require a cubic --block-size')
+
 if args.normalization == 'global' and args.std <= 0:
     parser.error('--std must be positive when using global normalization')
 
@@ -162,8 +166,11 @@ def build_model(model_name):
     model_module = importlib.import_module(f'Models.{model_name}')
     model_class = getattr(model_module, model_name)
 
-    if model_name in ['UCTransNet', 'CWnet', 'CSWnet']:
-        model = model_class(Config.get_CTranS_config())
+    if model_name in transformer_models:
+        model = model_class(
+            Config.get_CTranS_config(),
+            img_size=args.block_size[0]
+        )
     else:
         model = model_class(input_channels=1, output_channels=1)
     return model.to(device)

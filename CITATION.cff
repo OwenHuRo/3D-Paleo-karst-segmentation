@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it and the accompanying manuscript."
+title: "GSCD-Unet for 3D Paleokarst Cave Segmentation"
+type: software
+authors:
+  - family-names: Hu
+    given-names: Haowen
+    email: khalidyuehhw@gmail.com
+  - family-names: Dong
+    given-names: Xiaobin
+  - family-names: Jiang
+    given-names: Shu
+  - family-names: Song
+    given-names: Xiaohu
+repository-code: "https://github.com/OwenHuRo/3D-Paleo-karst-segmentation"
+license: MIT
+

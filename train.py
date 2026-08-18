@@ -1,6 +1,7 @@
 # main training code
 import os
 import argparse
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,11 +13,7 @@ import matplotlib.pyplot as plt
 from Utils import Config
 from Utils import utils
 from Utils.utils import DataGenerator
-from Utils.utils import compute_signed_distance_map, boundary_weighted_bce_loss, gradient_consistency_loss
 
-
-np.random.seed(12345)
-torch.manual_seed(12345)
 
 # GPU
 if torch.cuda.is_available():
@@ -27,20 +24,20 @@ else:
     print("No GPU available, using CPU instead.")
 
 
-parser = argparse.ArgumentParser(description="Choose the model and loss")
+parser = argparse.ArgumentParser(description="Train 3D paleokarst cave segmentation models")
 parser.add_argument(
     '--model',
     type=str,
-    default='UPPA3',
-    choices=['UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'],
-    help='Choose the model (default: UPPA3)'
+    default='GSCDUnet',
+    choices=['GSCDUnet', 'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'],
+    help='Choose the model; UPPA3 is the legacy name of GSCDUnet'
 )
 parser.add_argument(
     '--loss',
     type=str,
-    default='newloss',
-    choices=['BCE', 'Focal', 'WeightedBCE', 'FocalTversky','AdaptiveTverskyFocalLoss', 'WeightedDiceLoss','DWBLossBinary', 'newloss'],
-    help='Choose the loss (default: newloss)'
+    default='CompositeLoss',
+    choices=['CompositeLoss', 'BCE', 'Focal', 'WeightedBCE', 'FocalTversky', 'AdaptiveTverskyFocalLoss', 'WeightedDiceLoss', 'DWBLossBinary', 'newloss'],
+    help='Choose the loss; newloss is the legacy name of CompositeLoss'
 )
 parser.add_argument(
     '--data-root',
@@ -65,7 +62,22 @@ parser.add_argument(
     action='store_true',
     help='Use a small dataset split and train for one epoch'
 )
+parser.add_argument(
+    '--seed',
+    type=int,
+    default=12345,
+    help='Random seed used for training and data augmentation'
+)
 args = parser.parse_args()
+
+
+random.seed(args.seed)
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 # Logger and checkpoint directories
@@ -93,6 +105,25 @@ else:
     tdata_ids = range(1, 161)
     vdata_ids = range(161, 181)
     epochs = Config.epochs
+
+
+def validate_data_files(data_ids):
+    missing_files = []
+    for data_id in data_ids:
+        data_path = os.path.join(sxpath, f'synthetic_seismic_final_{data_id}.dat')
+        label_path = os.path.join(kxpath, f'synthetic_seismic_final_{data_id}.dat')
+        if not os.path.isfile(data_path):
+            missing_files.append(data_path)
+        if not os.path.isfile(label_path):
+            missing_files.append(label_path)
+
+    if missing_files:
+        preview = '\n'.join(missing_files[:6])
+        suffix = '' if len(missing_files) <= 6 else f'\n... and {len(missing_files) - 6} more'
+        parser.error(f'Required training files are missing:\n{preview}{suffix}')
+
+
+validate_data_files(list(tdata_ids) + list(vdata_ids))
 
 params = {'dim': (n1, n2, n3), 'n_channels': Config.n_channels, 'shuffle': True}
 
@@ -142,12 +173,14 @@ elif args.loss == 'DWBLossBinary':
     criterion.w_pos = criterion.w_pos.to(device)
     criterion.w_neg = criterion.w_neg.to(device)
 else:
-    # newloss uses Focal Loss as the segmentation loss.
-    criterion = utils.FocalLoss()
+    criterion = utils.CompositeLoss()
 
 
 # Load model
-if args.model == 'UNet':
+if args.model == 'GSCDUnet':
+    from Models import GSCDUnet
+    model = GSCDUnet.GSCDUnet(input_channels=1, output_channels=1).to(device)
+elif args.model == 'UNet':
     from Models import UNet
     model = UNet.UNet(input_channels=1, output_channels=1).to(device)
 elif args.model == 'UnetPlusPlus':
@@ -193,7 +226,8 @@ if resume_checkpoint is not None:
     checkpoint = torch.load(resume_checkpoint, map_location=device)
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if 'scheduler_state_dict' in checkpoint:
             lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         start_epoch = checkpoint.get('epoch', 0)
@@ -206,23 +240,6 @@ if resume_checkpoint is not None:
 def calculate_loss(outputs, targets, epoch):
     if args.loss == 'AdaptiveTverskyFocalLoss':
         return criterion(outputs, targets, epoch)
-
-    if args.loss == 'newloss':
-        seg_loss = criterion(outputs, targets)
-
-        masks_np = targets.detach().cpu().numpy()[:, 0]
-        dist_maps_np = np.stack([
-            compute_signed_distance_map(mask_np)
-            for mask_np in masks_np
-        ])
-        dist_map = torch.from_numpy(dist_maps_np).to(device)
-
-        # Boundary weighted BCE
-        loss_bnd = boundary_weighted_bce_loss(outputs, targets, dist_map)
-        # 3D gradient consistency
-        loss_grad = gradient_consistency_loss(outputs, targets)
-
-        return seg_loss + loss_bnd + loss_grad
 
     return criterion(outputs, targets)
 
@@ -299,7 +316,10 @@ for epoch in range(start_epoch, epochs):
             'scheduler_state_dict': lr_scheduler.state_dict(),
             'train_loss': avg_train_loss,
             'val_loss': avg_val_loss,
-            'best_val_loss': best_val_loss
+            'best_val_loss': best_val_loss,
+            'model_name': args.model,
+            'loss_name': args.loss,
+            'seed': args.seed
         }, best_checkpoint_path)
         print(f"Best checkpoint saved to {best_checkpoint_path}")
 
@@ -315,7 +335,10 @@ for epoch in range(start_epoch, epochs):
             'scheduler_state_dict': lr_scheduler.state_dict(),
             'train_loss': avg_train_loss,
             'val_loss': avg_val_loss,
-            'best_val_loss': best_val_loss
+            'best_val_loss': best_val_loss,
+            'model_name': args.model,
+            'loss_name': args.loss,
+            'seed': args.seed
         }, checkpoint_path)
         print(f"Checkpoint saved to {checkpoint_path}")
 

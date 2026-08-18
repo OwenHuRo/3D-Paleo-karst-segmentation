@@ -21,9 +21,9 @@ parser = argparse.ArgumentParser(description="Choose the model and checkpoint fo
 parser.add_argument(
     '--model',
     type=str,
-    default='UPPA3',
-    choices=['UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'],
-    help='Choose the model (default: UPPA3)'
+    default='GSCDUnet',
+    choices=['GSCDUnet', 'UNet', 'UnetPlusPlus', 'UCTransNet', 'CWnet', 'CSWnet', 'UPPA', 'UPPA1', 'UPPA2', 'UPPA3'],
+    help='Choose the model; UPPA3 is the legacy name of GSCDUnet'
 )
 parser.add_argument(
     '--checkpoint',
@@ -41,8 +41,8 @@ parser.add_argument(
     '--test-data-ids',
     type=int,
     nargs='+',
-    default=[1, 2],
-    help='Test data IDs, for example: --test-data-ids 181 182 183'
+    default=list(range(181, 201)),
+    help='Test data IDs (default: 181 through 200)'
 )
 parser.add_argument(
     '--dim',
@@ -73,13 +73,27 @@ if not 0.0 <= args.threshold <= 1.0:
 if not os.path.isfile(args.checkpoint):
     parser.error(f'checkpoint does not exist: {args.checkpoint}')
 
+if any(size < 128 for size in args.dim):
+    parser.error('--dim values must be at least 128 for the default test crop')
+
+for data_id in args.test_data_ids:
+    data_path = os.path.join(args.data_root, 'GroundTruth', f'synthetic_seismic_final_{data_id}.dat')
+    label_path = os.path.join(args.data_root, 'Label', f'synthetic_seismic_final_{data_id}.dat')
+    if not os.path.isfile(data_path):
+        parser.error(f'test data file does not exist: {data_path}')
+    if not os.path.isfile(label_path):
+        parser.error(f'test label file does not exist: {label_path}')
+
 os.makedirs(args.output_dir, exist_ok=True)
 
 
 # Load model
 config = Config.get_CTranS_config()
 
-if args.model == 'UNet':
+if args.model == 'GSCDUnet':
+    from Models import GSCDUnet
+    model = GSCDUnet.GSCDUnet(input_channels=1, output_channels=1).to(device)
+elif args.model == 'UNet':
     from Models import UNet
     model = UNet.UNet(input_channels=1, output_channels=1).to(device)
 elif args.model == 'UnetPlusPlus':

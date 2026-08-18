@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# SEG-Y field-data inference
+segyio>=1.9
+
+# Interactive 3D visualization
+cigvis>=0.1
+

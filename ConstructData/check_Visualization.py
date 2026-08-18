@@ -1,36 +1,36 @@
 import argparse
 from pathlib import Path
 
-import cigvis
 import numpy as np
 
 
 def parse_arguments():
+    project_root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(
-        description=""
+        description="Inspect generated seismic volumes and paleokarst labels."
     )
     parser.add_argument(
         "--start-index",
         type=int,
-        default=2,
+        default=181,
         help="First data index to load (inclusive).",
     )
     parser.add_argument(
         "--end-index",
         type=int,
-        default=3,
+        default=182,
         help="Last data index to load (exclusive).",
     )
     parser.add_argument(
         "--data-prefix",
         type=str,
-        default="",
+        default=str(project_root / "Data" / "GroundTruth" / "synthetic_seismic_final"),
         help="File prefix for seismic data.",
     )
     parser.add_argument(
         "--label-prefix",
         type=str,
-        default="",
+        default=str(project_root / "Data" / "Label" / "synthetic_seismic_final"),
         help="File prefix for label data.",
     )
     parser.add_argument(
@@ -127,6 +127,8 @@ def print_class_percentages(data_id, label_volume):
 
 
 def create_visualization_nodes(volumes, colormap):
+    import cigvis
+
     return [
         cigvis.create_slices(volume, cmap=colormap)
         for volume in volumes
@@ -135,6 +137,7 @@ def create_visualization_nodes(volumes, colormap):
 
 def main():
     args = parse_arguments()
+    import cigvis
 
     if args.end_index <= args.start_index:
         raise ValueError(

@@ -123,14 +123,19 @@ class EnhancedDownsample3D(nn.Module):
     The input is first rearranged using 3D space-to-depth, which reduces the
     spatial resolution while moving voxel information into the channel
     dimension. A squeeze-and-excitation block then recalibrates the expanded
-    channels according to their global responses.
+    channels according to their global responses. The expanded channels are
+    intentionally retained because GSCD-Unet fuses them with decoder features.
+
+    ``output_channel`` is retained for compatibility with the experimental
+    UPPA models. The operation always returns ``input_channel * scale**3``
+    channels because 3D PixelUnshuffle is information preserving.
     """
     def __init__(self, input_channel, output_channel, scale=2, reduction=4):
         super().__init__()
         self.scale = scale
         self.shuffle = ChannelShuffleDownsample3D(self.scale)
         self.input = input_channel
-        self.output = output_channel
+        self.output = self.input * self.scale**3
         self.se = nn.Sequential(
             nn.AdaptiveAvgPool3d(1),
             nn.Conv3d(self.input * self.scale**3, (self.input * self.scale**3) // reduction, 1),
@@ -138,12 +143,10 @@ class EnhancedDownsample3D(nn.Module):
             nn.Conv3d((self.input * self.scale**3) // reduction, self.input * self.scale**3, 1),
             nn.Sigmoid()
         )
-        #self.Compress = nn.Conv3d(self.input * self.scale**3, self.output, kernel_size=1)
 
     def forward(self, x):
         xs = self.shuffle(x)
         x = xs * self.se(xs)  # SE CAM
-        #x = self.Compress(x)
         return x
 
 
@@ -177,9 +180,9 @@ class SpatialAttention3D(nn.Module):  # SAM
         return x * spatial_attn
 
 
-class SSS(nn.Module):
+class GSCD(nn.Module):
     """
-    Composite spatial-attention and enhanced-downsampling module.
+    Gradient-guided Spatial Attention and Channel-shuffle Downsampling.
 
     The module first applies gradient-enhanced spatial attention to emphasize
     structurally important voxels and boundaries. It then performs
@@ -195,6 +198,10 @@ class SSS(nn.Module):
         s1 = self.Spatial(x)
         s23 = self.DownSamplingPlusSE(s1)
         return s23
+
+
+# Backward-compatible name used by the original experimental implementation.
+SSS = GSCD
 
 
 if __name__ == "__main__":
